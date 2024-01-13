@@ -15,14 +15,14 @@ pipeline{
         }
         stage('Checkout from Git'){
             steps{
-                git branch: 'main', url: ''
+                git branch: 'main', url: 'https://github.com/thdevopssre/uber-clone-eks.git'
             }
         }
         stage("Sonarqube Analysis "){
             steps{
                 withSonarQubeEnv('sonar-server') {
-                    sh ''' $SCANNER_HOME/bin/sonar-scanner -Dsonar.projectName=Hotstar \
-                    -Dsonar.projectKey=Hotstar'''
+                    sh ''' $SCANNER_HOME/bin/sonar-scanner -Dsonar.projectName=Uber \
+                    -Dsonar.projectKey=Uber'''
                 }
             }
         }
@@ -83,7 +83,18 @@ pipeline{
         }
         stage("deploy_docker"){
             steps{
-                sh "docker run -d --name uber -p 8080:80 thsre/uber:latest"
+                sh "docker run -d --name uber -p 3000:3000 thsre/uber:latest"
+            }
+        }
+        stage('Deploy to kubernets'){
+            steps{
+                script{
+                    dir('K8S') {
+                        withKubeConfig(caCertificate: '', clusterName: '', contextName: '', credentialsId: 'k8s', namespace: '', restrictKubeConfigAccess: false, serverUrl: '') {
+                                sh 'kubectl apply -f deployment.yml'
+                        }
+                    }
+                }
             }
         }
     }
