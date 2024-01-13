@@ -1,0 +1,90 @@
+pipeline{
+    agent any
+    tools{
+        jdk 'jdk17'
+        nodejs 'node16'
+    }
+    environment {
+        SCANNER_HOME=tool 'sonar-scanner'
+    }
+    stages {
+        stage('clean workspace'){
+            steps{
+                cleanWs()
+            }
+        }
+        stage('Checkout from Git'){
+            steps{
+                git branch: 'main', url: ''
+            }
+        }
+        stage("Sonarqube Analysis "){
+            steps{
+                withSonarQubeEnv('sonar-server') {
+                    sh ''' $SCANNER_HOME/bin/sonar-scanner -Dsonar.projectName=Hotstar \
+                    -Dsonar.projectKey=Hotstar'''
+                }
+            }
+        }
+        stage("quality gate"){
+           steps {
+                script {
+                    waitForQualityGate abortPipeline: false, credentialsId: 'Sonar-token'
+                }
+            }
+        }
+        stage('Install Dependencies') {
+            steps {
+                sh "npm install"
+            }
+        }
+        stage('OWASP FS SCAN') {
+            steps {
+                dependencyCheck additionalArguments: '--scan ./ --disableYarnAudit --disableNodeAudit', odcInstallation: 'DP-Check'
+                dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
+            }
+        }
+        stage('Docker Scout FS') {
+            steps {
+                script{
+                   withDockerRegistry(credentialsId: 'docker', toolName: 'docker'){
+                       sh 'docker-scout quickview fs://.'
+                       sh 'docker-scout cves fs://.'
+                   }
+                }
+            }
+        }
+        stage("Docker Build & Push"){
+            steps{
+                script{
+                   withDockerRegistry(credentialsId: 'docker', toolName: 'docker'){
+                       sh "docker build -t uber ."
+                       sh "docker tag uber thsre/uber:latest "
+                       sh "docker push thsre/uber:latest"
+                    }
+                }
+            }
+        }
+        stage("TRIVY"){
+            steps{
+                sh "trivy image thsre/uber:latest > trivyimage.txt" 
+            }
+        }
+        stage('Docker Scout Image') {
+            steps {
+                script{
+                   withDockerRegistry(credentialsId: 'docker', toolName: 'docker'){
+                       sh 'docker-scout quickview thsre/uber:latest'
+                       sh 'docker-scout cves thsre/uber:latest'
+                       sh 'docker-scout recommendations thsre/uber:latest'
+                   }
+                }
+            }
+        }
+        stage("deploy_docker"){
+            steps{
+                sh "docker run -d --name uber -p 8080:80 thsre/uber:latest"
+            }
+        }
+    }
+}
